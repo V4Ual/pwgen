@@ -1,913 +1,512 @@
+// app/page.tsx
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-
+import { useState, useEffect, useCallback } from "react";
 import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Container,
-  Fade,
-  FormControlLabel,
-  IconButton,
-  LinearProgress,
-  Paper,
-  Slider,
-  Snackbar,
-  Stack,
-  Switch,
-  TextField,
-  Tooltip,
-  Typography,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
-
-import {
-  AutoAwesomeRounded,
-  BoltRounded,
-  CheckCircleRounded,
-  ContentCopyRounded,
-  LockRounded,
-  RefreshRounded,
-  SecurityRounded,
-  ShieldRounded,
-  VisibilityOffRounded,
-  VisibilityRounded,
-} from "@mui/icons-material";
-
-/* -------------------------------------------------------------------------- */
-/*                                  CONFIG                                    */
-/* -------------------------------------------------------------------------- */
-
-const CHARSETS = {
-  upper: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-  lower: "abcdefghijklmnopqrstuvwxyz",
-  numbers: "0123456789",
-  symbols: "!@#$%^&*()_+-=[]{}|;:,.<>?",
-};
-
-const actionButtonStyle = {
-  width: {
-    xs: 46,
-    sm: 52,
-  },
-  height: {
-    xs: 46,
-    sm: 52,
-  },
-  borderRadius: "16px",
-};
-
-type Strength = {
-  label: string;
-  color: string;
-  score: number;
-};
-
-const strengthLevels: Strength[] = [
-  {
-    label: "Very Weak",
-    color: "#ef4444",
-    score: 0,
-  },
-  {
-    label: "Weak",
-    color: "#f97316",
-    score: 1,
-  },
-  {
-    label: "Fair",
-    color: "#facc15",
-    score: 2,
-  },
-  {
-    label: "Strong",
-    color: "#22c55e",
-    score: 3,
-  },
-  {
-    label: "Very Strong",
-    color: "#10b981",
-    score: 4,
-  },
-];
-
-/* -------------------------------------------------------------------------- */
-/*                           PASSWORD GENERATOR                               */
-/* -------------------------------------------------------------------------- */
-
-const generatePassword = (
-  length: number,
-  useUpper: boolean,
-  useLower: boolean,
-  useNumbers: boolean,
-  useSymbols: boolean,
-) => {
-  let chars = "";
-
-  if (useUpper) chars += CHARSETS.upper;
-  if (useLower) chars += CHARSETS.lower;
-  if (useNumbers) chars += CHARSETS.numbers;
-  if (useSymbols) chars += CHARSETS.symbols;
-
-  if (!chars) return "";
-
-  const randomValues = new Uint32Array(length);
-
-  crypto.getRandomValues(randomValues);
-
-  let password = "";
-
-  for (let i = 0; i < length; i++) {
-    password += chars[randomValues[i] % chars.length];
-  }
-
-  return password;
-};
-
-/* -------------------------------------------------------------------------- */
-/*                            PASSWORD STRENGTH                               */
-/* -------------------------------------------------------------------------- */
-
-const calculateStrength = (password: string): Strength => {
-  let score = 0;
-
-  if (password.length >= 8) score++;
-  if (password.length >= 12) score++;
-  if (password.length >= 16) score++;
-
-  if (/[A-Z]/.test(password)) score++;
-  if (/[a-z]/.test(password)) score++;
-  if (/[0-9]/.test(password)) score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
-
-  if (score <= 2) return strengthLevels[0];
-  if (score <= 3) return strengthLevels[1];
-  if (score <= 4) return strengthLevels[2];
-  if (score <= 5) return strengthLevels[3];
-
-  return strengthLevels[4];
-};
-
-/* -------------------------------------------------------------------------- */
-/*                                   PAGE                                     */
-/* -------------------------------------------------------------------------- */
+  savePassword,
+  getAllPasswords,
+  deletePassword,
+  type StoredPassword,
+} from "@/lib/db";
 
 export default function Home() {
-  const theme = useTheme();
-
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
   const [password, setPassword] = useState("");
+  const [length, setLength] = useState(16);
+  const [includeUppercase, setIncludeUppercase] = useState(true);
+  const [includeLowercase, setIncludeLowercase] = useState(true);
+  const [includeNumbers, setIncludeNumbers] = useState(true);
+  const [includeSymbols, setIncludeSymbols] = useState(true);
+  const [savedPasswords, setSavedPasswords] = useState<StoredPassword[]>([]);
+  const [copySuccess, setCopySuccess] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState("");
+  const [serviceName, setServiceName] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [length, setLength] = useState(18);
-
-  const [useUpper, setUseUpper] = useState(true);
-
-  const [useLower, setUseLower] = useState(true);
-
-  const [useNumbers, setUseNumbers] = useState(true);
-
-  const [useSymbols, setUseSymbols] = useState(true);
-
-  const [showPassword, setShowPassword] = useState(false);
-
-  const [copied, setCopied] = useState(false);
-
-  const disabled = !useUpper && !useLower && !useNumbers && !useSymbols;
-
-  const strength = useMemo(() => calculateStrength(password), [password]);
-
-  const strengthPercentage = ((strength.score + 1) / 5) * 100;
-
-  /* ---------------------------------------------------------------------- */
-  /*                               GENERATE                                 */
-  /* ---------------------------------------------------------------------- */
-
-  const generate = useCallback(() => {
-    const newPassword = generatePassword(
-      length,
-      useUpper,
-      useLower,
-      useNumbers,
-      useSymbols,
-    );
-
-    setPassword(newPassword);
-  }, [length, useUpper, useLower, useNumbers, useSymbols]);
-
+  // Load saved passwords from IndexedDB on mount
   useEffect(() => {
-    generate();
-  }, [generate]);
+    const loadPasswords = async () => {
+      try {
+        const passwords = await getAllPasswords();
+        setSavedPasswords(passwords);
+      } catch (error) {
+        console.error("Failed to load passwords:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadPasswords();
+  }, []);
 
-  /* ---------------------------------------------------------------------- */
-  /*                               COPY                                     */
-  /* ---------------------------------------------------------------------- */
+  // Generate random password based on criteria
+  const generatePassword = useCallback(() => {
+    const uppercaseChars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const lowercaseChars = "abcdefghijkmnopqrstuvwxyz";
+    const numberChars = "23456789";
+    const symbolChars = "!@#$%^&*()_+[]{}<>?";
 
-  const copyPassword = async () => {
-    if (!password) return;
+    let allowedChars = "";
+    if (includeUppercase) allowedChars += uppercaseChars;
+    if (includeLowercase) allowedChars += lowercaseChars;
+    if (includeNumbers) allowedChars += numberChars;
+    if (includeSymbols) allowedChars += symbolChars;
 
-    await navigator.clipboard.writeText(password);
+    if (allowedChars === "") {
+      setPassword("Please select at least one character type");
+      return;
+    }
 
-    setCopied(true);
+    let generatedPassword = "";
+    for (let i = 0; i < length; i++) {
+      const randomIndex = Math.floor(Math.random() * allowedChars.length);
+      generatedPassword += allowedChars[randomIndex];
+    }
+
+    // Ensure at least one character from each selected type (better distribution)
+    let finalPassword = generatedPassword;
+    if (includeUppercase && !finalPassword.match(/[A-Z]/)) {
+      finalPassword =
+        finalPassword.slice(1) +
+        uppercaseChars[Math.floor(Math.random() * uppercaseChars.length)];
+    }
+    if (includeLowercase && !finalPassword.match(/[a-z]/)) {
+      finalPassword =
+        finalPassword.slice(1) +
+        lowercaseChars[Math.floor(Math.random() * lowercaseChars.length)];
+    }
+    if (includeNumbers && !finalPassword.match(/[2-9]/)) {
+      finalPassword =
+        finalPassword.slice(1) +
+        numberChars[Math.floor(Math.random() * numberChars.length)];
+    }
+    if (includeSymbols && !finalPassword.match(/[!@#$%^&*()_+[\]{}<>?]/)) {
+      finalPassword =
+        finalPassword.slice(1) +
+        symbolChars[Math.floor(Math.random() * symbolChars.length)];
+    }
+
+    setPassword(finalPassword);
+  }, [
+    length,
+    includeUppercase,
+    includeLowercase,
+    includeNumbers,
+    includeSymbols,
+  ]);
+
+  // Generate on mount and when settings change
+  useEffect(() => {
+    generatePassword();
+  }, [generatePassword]);
+
+  // Copy password to clipboard
+  const copyToClipboard = async () => {
+    if (!password || password.includes("Please select")) return;
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopySuccess("✓ Copied!");
+      setTimeout(() => setCopySuccess(""), 2000);
+    } catch (err) {
+      setCopySuccess("Failed to copy");
+      setTimeout(() => setCopySuccess(""), 2000);
+    }
   };
 
-  /* ---------------------------------------------------------------------- */
-  /*                                 UI                                     */
-  /* ---------------------------------------------------------------------- */
+  // Save current password to IndexedDB
+  const handleSave = async () => {
+    if (!password || password.includes("Please select")) {
+      setSaveSuccess("Generate a valid password first");
+      setTimeout(() => setSaveSuccess(""), 2000);
+      return;
+    }
+
+    const service =
+      serviceName.trim() || `Password-${new Date().toLocaleDateString()}`;
+
+    try {
+      await savePassword({
+        password,
+        service,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Refresh the list
+      const updatedPasswords = await getAllPasswords();
+      setSavedPasswords(updatedPasswords);
+      setSaveSuccess(`✓ Saved for "${service}"`);
+      setServiceName(""); // Clear service name input
+      setTimeout(() => setSaveSuccess(""), 2000);
+    } catch (error) {
+      console.error("Save failed:", error);
+      setSaveSuccess("Failed to save");
+      setTimeout(() => setSaveSuccess(""), 2000);
+    }
+  };
+
+  // Delete a saved password
+  const handleDelete = async (id: number) => {
+    try {
+      await deletePassword(id);
+      const updatedPasswords = await getAllPasswords();
+      setSavedPasswords(updatedPasswords);
+    } catch (error) {
+      console.error("Delete failed:", error);
+    }
+  };
+
+  // Copy a saved password to clipboard
+  const copySavedPassword = async (pwd: string, service: string) => {
+    try {
+      await navigator.clipboard.writeText(pwd);
+      setCopySuccess(`✓ Copied ${service}`);
+      setTimeout(() => setCopySuccess(""), 2000);
+    } catch (err) {
+      setCopySuccess("Failed to copy");
+      setTimeout(() => setCopySuccess(""), 2000);
+    }
+  };
+
+  // Password strength indicator
+  const getStrength = () => {
+    let score = 0;
+    if (length >= 12) score++;
+    if (length >= 16) score++;
+    if (includeUppercase) score++;
+    if (includeLowercase) score++;
+    if (includeNumbers) score++;
+    if (includeSymbols) score++;
+
+    if (score <= 2) return { text: "Weak", color: "bg-red-500", width: "33%" };
+    if (score <= 4)
+      return { text: "Fair", color: "bg-yellow-500", width: "66%" };
+    return { text: "Strong", color: "bg-green-500", width: "100%" };
+  };
+
+  const strength = getStrength();
 
   return (
-    <Box
-      sx={{
-        minHeight: "100dvh",
+    <div className="min-h-screen bg-[#050816] overflow-hidden relative">
+      {/* Animated Background */}
+      <div className="absolute inset-0">
+        <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-cyan-500/20 blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-purple-600/20 blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_40%)]" />
+      </div>
 
-        background: `
-          radial-gradient(circle at top left, rgba(139,92,246,0.25), transparent 30%),
-          radial-gradient(circle at bottom right, rgba(59,130,246,0.2), transparent 30%),
-          linear-gradient(135deg, #050816 0%, #0f172a 100%)
-        `,
+      <div className="relative z-10 container mx-auto px-4 py-10 max-w-7xl">
+        {/* Header */}
+        <header className="text-center mb-10">
+          <h1 className="text-5xl md:text-7xl font-black tracking-tight">
+            <span className="bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-500 bg-clip-text text-transparent drop-shadow-[0_0_25px_rgba(34,211,238,0.5)]">
+              VaultForge
+            </span>
+          </h1>
 
-        display: "flex",
+          <p className="text-gray-400 mt-4 text-lg">
+            Next Generation Password Vault Experience
+          </p>
+        </header>
 
-        alignItems: {
-          xs: "flex-start",
-          md: "center",
-        },
+        <div className="grid lg:grid-cols-[420px_1fr] gap-8">
+          {/* Generator Card */}
+          <div className="relative group">
+            <div className="absolute -inset-[1px] bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500 rounded-[32px] blur opacity-40 group-hover:opacity-100 transition duration-500" />
 
-        justifyContent: "center",
+            <div className="relative bg-white/10 backdrop-blur-2xl border border-white/10 rounded-[32px] p-6 shadow-[0_25px_80px_rgba(0,0,0,0.45)]">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-2xl shadow-lg shadow-cyan-500/30">
+                  ⚡
+                </div>
 
-        py: {
-          xs: 2,
-          sm: 4,
-        },
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    Password Generator
+                  </h2>
+                  <p className="text-sm text-gray-400">
+                    AI Style Secure Passwords
+                  </p>
+                </div>
+              </div>
 
-        px: {
-          xs: 1,
-          sm: 2,
-        },
-      }}
-    >
-      <Container
-        maxWidth="md"
-        disableGutters={isMobile}
-        sx={{
-          width: "100%",
-        }}
-      >
-        <Paper
-          elevation={0}
-          sx={{
-            overflow: "hidden",
+              {/* Password Display */}
+              <div className="relative mb-6">
+                <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 blur-xl rounded-2xl" />
 
-            borderRadius: {
-              xs: "22px",
-              sm: "32px",
-            },
+                <div className="relative bg-black/40 border border-cyan-400/20 rounded-2xl p-5 pr-14 shadow-inner shadow-cyan-500/10">
+                  <span className="font-mono text-cyan-300 text-lg break-all">
+                    {password || "Generate Password"}
+                  </span>
+                </div>
 
-            backdropFilter: "blur(30px)",
-
-            background: "rgba(15, 23, 42, 0.72)",
-
-            border: "1px solid rgba(255,255,255,0.08)",
-
-            boxShadow: "0 20px 80px rgba(0,0,0,0.45)",
-          }}
-        >
-          {/* HEADER */}
-
-          <Box
-            sx={{
-              px: {
-                xs: 2,
-                sm: 4,
-                md: 5,
-              },
-
-              pt: {
-                xs: 3,
-                sm: 5,
-              },
-
-              pb: 2,
-            }}
-          >
-            <Stack
-              direction={{
-                xs: "column",
-                sm: "row",
-              }}
-              spacing={2}
-              justifyContent="space-between"
-              alignItems={{
-                xs: "flex-start",
-                sm: "center",
-              }}
-            >
-              <Stack direction="row" spacing={1.5} alignItems="center">
-                <Box
-                  sx={{
-                    width: {
-                      xs: 48,
-                      sm: 56,
-                    },
-
-                    height: {
-                      xs: 48,
-                      sm: 56,
-                    },
-
-                    borderRadius: "18px",
-
-                    display: "grid",
-
-                    placeItems: "center",
-
-                    background:
-                      "linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)",
-                  }}
+                <button
+                  onClick={copyToClipboard}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 hover:scale-110 transition-all duration-300 shadow-lg shadow-cyan-500/40 flex items-center justify-center"
                 >
-                  <SecurityRounded
-                    sx={{
-                      color: "#fff",
-                    }}
-                  />
-                </Box>
-
-                <Box>
-                  <Typography
-                    variant="h4"
-                    fontWeight={800}
-                    sx={{
-                      color: "#fff",
-
-                      lineHeight: 1,
-
-                      fontSize: {
-                        xs: "1.5rem",
-                        sm: "2rem",
-                      },
-                    }}
+                  <svg
+                    className="w-5 h-5 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    SecurePass
-                  </Typography>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                    />
+                  </svg>
+                </button>
+              </div>
 
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: "rgba(255,255,255,0.6)",
+              {copySuccess && (
+                <div className="mb-4 text-green-400 text-center font-medium">
+                  {copySuccess}
+                </div>
+              )}
 
-                      mt: 0.5,
+              {/* Length */}
+              <div className="mb-6">
+                <div className="flex justify-between mb-2 text-sm">
+                  <span className="text-gray-300">Password Length</span>
+                  <span className="text-cyan-400 font-semibold">{length}</span>
+                </div>
 
-                      fontSize: {
-                        xs: "0.8rem",
-                        sm: "0.9rem",
-                      },
-                    }}
-                  >
-                    Production-ready secure password generator
-                  </Typography>
-                </Box>
-              </Stack>
-
-              <Chip
-                icon={<ShieldRounded />}
-                label="256-bit Secure"
-                sx={{
-                  background: "rgba(16,185,129,0.15)",
-
-                  color: "#10b981",
-
-                  border: "1px solid rgba(16,185,129,0.25)",
-
-                  fontWeight: 700,
-                }}
-              />
-            </Stack>
-          </Box>
-
-          {/* PASSWORD CARD */}
-
-          <Box
-            sx={{
-              px: {
-                xs: 2,
-                sm: 4,
-                md: 5,
-              },
-
-              py: {
-                xs: 2,
-                sm: 3,
-              },
-            }}
-          >
-            <Box
-              sx={{
-                borderRadius: {
-                  xs: "20px",
-                  sm: "24px",
-                },
-
-                p: {
-                  xs: 2,
-                  sm: 3,
-                },
-
-                background:
-                  "linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))",
-
-                border: "1px solid rgba(255,255,255,0.08)",
-              }}
-            >
-              <Stack spacing={2}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <LockRounded
-                    sx={{
-                      color: "#8b5cf6",
-                    }}
-                  />
-
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: "rgba(255,255,255,0.7)",
-
-                      fontWeight: 600,
-                    }}
-                  >
-                    Generated Password
-                  </Typography>
-                </Stack>
-
-                {/* INPUT + ACTIONS */}
-
-                <Stack
-                  direction={{
-                    xs: "column",
-                    sm: "row",
-                  }}
-                  spacing={1}
-                  alignItems="stretch"
-                >
-                  <TextField
-                    fullWidth
-                    value={disabled ? "Select at least one option" : password}
-                    type={showPassword ? "text" : "password"}
-                    sx={{
-                      flex: 1,
-
-                      "& input": {
-                        color: "#fff",
-                      },
-                    }}
-                    InputProps={{
-                      readOnly: true,
-
-                      sx: {
-                        borderRadius: "18px",
-
-                        fontFamily: "monospace",
-
-                        fontWeight: 700,
-
-                        fontSize: {
-                          xs: "0.82rem",
-                          sm: "1rem",
-                          md: "1.1rem",
-                        },
-
-                        letterSpacing: 1,
-
-                        background: "rgba(255,255,255,0.03)",
-
-                        "& fieldset": {
-                          border: "1px solid rgba(255,255,255,0.08)",
-                        },
-                      },
-                    }}
-                  />
-
-                  <Stack direction="row" spacing={1} justifyContent="center">
-                    {/* SHOW */}
-
-                    <Tooltip title="Show Password">
-                      <IconButton
-                        onClick={() => setShowPassword(!showPassword)}
-                        sx={{
-                          ...actionButtonStyle,
-
-                          background: "rgba(255,255,255,0.04)",
-
-                          color: "#fff",
-
-                          "&:hover": {
-                            background: "rgba(255,255,255,0.08)",
-                          },
-                        }}
-                      >
-                        {showPassword ? (
-                          <VisibilityOffRounded />
-                        ) : (
-                          <VisibilityRounded />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-
-                    {/* COPY */}
-
-                    <Tooltip title="Copy Password">
-                      <span>
-                        <IconButton
-                          disabled={disabled}
-                          onClick={copyPassword}
-                          sx={{
-                            ...actionButtonStyle,
-
-                            background: "rgba(139,92,246,0.12)",
-
-                            color: "#8b5cf6",
-
-                            "&:hover": {
-                              background: "rgba(139,92,246,0.2)",
-                            },
-                          }}
-                        >
-                          <ContentCopyRounded />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-
-                    {/* GENERATE */}
-
-                    <Tooltip title="Generate">
-                      <IconButton
-                        onClick={generate}
-                        sx={{
-                          ...actionButtonStyle,
-
-                          background:
-                            "linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)",
-
-                          color: "#fff",
-
-                          "&:hover": {
-                            transform: "scale(1.04)",
-                          },
-                        }}
-                      >
-                        <RefreshRounded />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
-                </Stack>
-
-                {/* STRENGTH */}
-
-                {!disabled && (
-                  <Fade in>
-                    <Box>
-                      <Stack
-                        direction="row"
-                        justifyContent="space-between"
-                        mb={1}
-                      >
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "rgba(255,255,255,0.6)",
-                          }}
-                        >
-                          Password Strength
-                        </Typography>
-
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: strength.color,
-
-                            fontWeight: 700,
-                          }}
-                        >
-                          {strength.label}
-                        </Typography>
-                      </Stack>
-
-                      <LinearProgress
-                        variant="determinate"
-                        value={strengthPercentage}
-                        sx={{
-                          height: 10,
-
-                          borderRadius: 10,
-
-                          background: "rgba(255,255,255,0.06)",
-
-                          "& .MuiLinearProgress-bar": {
-                            borderRadius: 10,
-
-                            background: strength.color,
-                          },
-                        }}
-                      />
-                    </Box>
-                  </Fade>
-                )}
-              </Stack>
-            </Box>
-          </Box>
-
-          {/* CONTROLS */}
-
-          <Box
-            sx={{
-              px: {
-                xs: 2,
-                sm: 4,
-                md: 5,
-              },
-
-              pb: {
-                xs: 3,
-                sm: 5,
-              },
-            }}
-          >
-            <Stack spacing={4}>
-              {/* LENGTH */}
-
-              <Box>
-                <Stack direction="row" justifyContent="space-between" mb={2}>
-                  <Typography
-                    sx={{
-                      color: "#fff",
-                      fontWeight: 700,
-                    }}
-                  >
-                    Password Length
-                  </Typography>
-
-                  <Chip
-                    label={`${length} Characters`}
-                    sx={{
-                      background: "rgba(139,92,246,0.12)",
-
-                      color: "#a78bfa",
-
-                      fontWeight: 700,
-                    }}
-                  />
-                </Stack>
-
-                <Slider
+                <input
+                  type="range"
+                  min="8"
+                  max="32"
                   value={length}
-                  min={6}
-                  max={40}
-                  onChange={(_, value) => setLength(value as number)}
-                  sx={{
-                    color: "#8b5cf6",
-
-                    "& .MuiSlider-thumb": {
-                      width: 20,
-                      height: 20,
-                    },
-                  }}
+                  onChange={(e) => setLength(parseInt(e.target.value))}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer bg-gradient-to-r from-cyan-500 to-purple-600"
                 />
-              </Box>
+              </div>
 
-              {/* OPTIONS */}
-
-              <Box
-                sx={{
-                  display: "grid",
-
-                  gridTemplateColumns: {
-                    xs: "1fr",
-                    md: "1fr 1fr",
-                  },
-
-                  gap: {
-                    xs: 1.5,
-                    sm: 2,
-                  },
-                }}
-              >
+              {/* Options */}
+              <div className="space-y-3 mb-6">
                 {[
                   {
                     label: "Uppercase Letters",
-                    checked: useUpper,
-                    set: setUseUpper,
+                    checked: includeUppercase,
+                    onChange: setIncludeUppercase,
                   },
-
                   {
                     label: "Lowercase Letters",
-                    checked: useLower,
-                    set: setUseLower,
+                    checked: includeLowercase,
+                    onChange: setIncludeLowercase,
                   },
-
                   {
                     label: "Numbers",
-                    checked: useNumbers,
-                    set: setUseNumbers,
+                    checked: includeNumbers,
+                    onChange: setIncludeNumbers,
                   },
-
                   {
-                    label: "Special Symbols",
-                    checked: useSymbols,
-                    set: setUseSymbols,
+                    label: "Symbols",
+                    checked: includeSymbols,
+                    onChange: setIncludeSymbols,
                   },
-                ].map((item) => (
-                  <Box
-                    key={item.label}
-                    sx={{
-                      p: 2,
-
-                      borderRadius: "18px",
-
-                      background: "rgba(255,255,255,0.03)",
-
-                      border: "1px solid rgba(255,255,255,0.06)",
-                    }}
+                ].map((item, i) => (
+                  <label
+                    key={i}
+                    className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3 hover:bg-white/10 transition-all cursor-pointer"
                   >
-                    <FormControlLabel
-                      sx={{
-                        width: "100%",
+                    <span className="text-gray-200">{item.label}</span>
 
-                        m: 0,
-
-                        justifyContent: "space-between",
-
-                        "& .MuiTypography-root": {
-                          color: "#fff",
-
-                          fontWeight: 500,
-                        },
-                      }}
-                      control={
-                        <Switch
-                          checked={item.checked}
-                          onChange={() => item.set(!item.checked)}
-                        />
-                      }
-                      label={item.label}
-                      labelPlacement="start"
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      onChange={(e) => item.onChange(e.target.checked)}
+                      className="w-5 h-5 accent-cyan-500"
                     />
-                  </Box>
+                  </label>
                 ))}
-              </Box>
+              </div>
 
-              {/* GENERATE BUTTON */}
+              {/* Strength */}
+              <div className="mb-6">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-gray-400">Security Level</span>
+                  <span
+                    className={`font-semibold ${
+                      strength.text === "Strong"
+                        ? "text-green-400"
+                        : strength.text === "Fair"
+                          ? "text-yellow-400"
+                          : "text-red-400"
+                    }`}
+                  >
+                    {strength.text}
+                  </span>
+                </div>
 
-              <Button
-                fullWidth
-                size={isMobile ? "medium" : "large"}
-                disabled={disabled}
-                onClick={generate}
-                startIcon={<AutoAwesomeRounded />}
-                sx={{
-                  py: {
-                    xs: 1.5,
-                    sm: 1.8,
-                  },
+                <div className="h-3 bg-black/30 rounded-full overflow-hidden border border-white/10">
+                  <div
+                    style={{ width: strength.width }}
+                    className={`h-full ${strength.color} transition-all duration-500 shadow-lg`}
+                  />
+                </div>
+              </div>
 
-                  borderRadius: "18px",
-
-                  fontWeight: 800,
-
-                  fontSize: {
-                    xs: "0.92rem",
-                    sm: "1rem",
-                  },
-
-                  textTransform: "none",
-
-                  color: "#fff",
-
-                  background:
-                    "linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)",
-
-                  boxShadow: "0 10px 30px rgba(99,102,241,0.35)",
-
-                  "&:hover": {
-                    transform: "translateY(-2px)",
-
-                    boxShadow: "0 14px 40px rgba(99,102,241,0.45)",
-                  },
-                }}
+              {/* Generate Button */}
+              <button
+                onClick={generatePassword}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-600 text-white font-bold text-lg hover:scale-[1.03] active:scale-[0.98] transition-all duration-300 shadow-[0_15px_35px_rgba(59,130,246,0.45)]"
               >
-                Generate Secure Password
-              </Button>
+                ✨ Generate Password
+              </button>
+            </div>
+          </div>
 
-              {/* FEATURES */}
+          {/* Vault Section */}
+          <div className="space-y-6">
+            {/* Save Card */}
+            <div className="relative group">
+              <div className="absolute -inset-[1px] bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-[30px] blur opacity-30 group-hover:opacity-100 transition duration-500" />
 
-              <Box
-                sx={{
-                  display: "flex",
+              <div className="relative bg-white/10 backdrop-blur-2xl border border-white/10 rounded-[30px] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-2xl shadow-lg">
+                    💾
+                  </div>
 
-                  gap: 1,
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">
+                      Save Password
+                    </h2>
+                    <p className="text-gray-400 text-sm">
+                      Store locally with IndexedDB
+                    </p>
+                  </div>
+                </div>
 
-                  flexWrap: "wrap",
+                <div className="flex flex-col xl:flex-row gap-4">
+                  <input
+                    type="text"
+                    value={serviceName}
+                    onChange={(e) => setServiceName(e.target.value)}
+                    placeholder="Enter service name..."
+                    className="flex-1 bg-black/30 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-gray-500 outline-none focus:border-cyan-400 transition-all"
+                  />
 
-                  justifyContent: "center",
+                  <button
+                    onClick={handleSave}
+                    className="px-8 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold hover:scale-105 transition-all duration-300 shadow-lg shadow-emerald-500/30"
+                  >
+                    Save Vault
+                  </button>
+                </div>
 
-                  "& .MuiChip-root": {
-                    width: {
-                      xs: "100%",
-                      sm: "auto",
-                    },
-                  },
-                }}
-              >
-                <Chip
-                  icon={<BoltRounded />}
-                  label="Fast Generation"
-                  sx={{
-                    color: "#fff",
+                {saveSuccess && (
+                  <div className="text-emerald-400 mt-3 text-center">
+                    {saveSuccess}
+                  </div>
+                )}
+              </div>
+            </div>
 
-                    background: "rgba(255,255,255,0.04)",
-                  }}
-                />
+            {/* Vault List */}
+            <div className="relative group">
+              <div className="absolute -inset-[1px] bg-gradient-to-r from-purple-500 to-cyan-500 rounded-[30px] blur opacity-30 group-hover:opacity-100 transition duration-500" />
 
-                <Chip
-                  icon={<ShieldRounded />}
-                  label="Crypto Secure"
-                  sx={{
-                    color: "#fff",
+              <div className="relative bg-white/10 backdrop-blur-2xl border border-white/10 rounded-[30px] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">
+                      🏦 Password Vault
+                    </h2>
 
-                    background: "rgba(255,255,255,0.04)",
-                  }}
-                />
+                    <p className="text-gray-400 text-sm mt-1">
+                      {savedPasswords.length} Secure Passwords
+                    </p>
+                  </div>
+                </div>
 
-                <Chip
-                  icon={<CheckCircleRounded />}
-                  label="Production Ready"
-                  sx={{
-                    color: "#fff",
+                {isLoading ? (
+                  <div className="text-center py-16 text-gray-400">
+                    Loading Vault...
+                  </div>
+                ) : savedPasswords.length === 0 ? (
+                  <div className="text-center py-20">
+                    <div className="text-7xl mb-4 opacity-50">🔐</div>
 
-                    background: "rgba(255,255,255,0.04)",
-                  }}
-                />
-              </Box>
+                    <h3 className="text-xl font-semibold text-gray-300">
+                      Vault Empty
+                    </h3>
 
-              {/* WARNING */}
+                    <p className="text-gray-500 mt-2">
+                      Save your first secure password
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                    {savedPasswords.map((item) => (
+                      <div
+                        key={item.id}
+                        className="bg-black/30 border border-white/10 hover:border-cyan-400/40 rounded-3xl p-5 transition-all duration-300 hover:translate-y-[-3px] hover:shadow-[0_15px_35px_rgba(34,211,238,0.15)]"
+                      >
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="text-cyan-400 font-bold text-lg">
+                                {item.service}
+                              </span>
 
-              {disabled && (
-                <Alert
-                  severity="warning"
-                  sx={{
-                    borderRadius: "16px",
-                  }}
-                >
-                  Select at least one character option
-                </Alert>
-              )}
+                              <span className="text-xs text-gray-500 bg-white/5 px-3 py-1 rounded-full">
+                                {new Date(item.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
 
-              {/* FOOTER */}
+                            <div className="font-mono text-gray-300 mt-3 break-all bg-black/30 rounded-xl px-4 py-3 border border-white/5">
+                              {item.password}
+                            </div>
+                          </div>
 
-              <Typography
-                textAlign="center"
-                variant="body2"
-                sx={{
-                  color: "rgba(255,255,255,0.45)",
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() =>
+                                copySavedPassword(item.password, item.service)
+                              }
+                              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 hover:scale-110 transition-all flex items-center justify-center shadow-lg shadow-cyan-500/30"
+                            >
+                              📋
+                            </button>
 
-                  lineHeight: 1.8,
+                            <button
+                              onClick={() => handleDelete(item.id!)}
+                              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500 to-pink-600 hover:scale-110 transition-all flex items-center justify-center shadow-lg shadow-red-500/30"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
-                  fontSize: {
-                    xs: "0.82rem",
-                    sm: "0.95rem",
-                  },
-                }}
-              >
-                Use 16+ characters with uppercase, lowercase, numbers, and
-                symbols for maximum protection.
-              </Typography>
-            </Stack>
-          </Box>
-        </Paper>
+        {/* Footer */}
+        <footer className="text-center text-gray-500 text-sm mt-10">
+          🔒 Local Storage Only • No Cloud Sync • Fully Private
+        </footer>
+      </div>
 
-        {/* SNACKBAR */}
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
 
-        <Snackbar
-          open={copied}
-          autoHideDuration={2000}
-          onClose={() => setCopied(false)}
-          anchorOrigin={{
-            vertical: "bottom",
-            horizontal: "center",
-          }}
-        >
-          <Alert
-            icon={<CheckCircleRounded />}
-            severity="success"
-            sx={{
-              borderRadius: "999px",
-            }}
-          >
-            Password copied successfully
-          </Alert>
-        </Snackbar>
-      </Container>
-    </Box>
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 999px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: linear-gradient(to bottom, #06b6d4, #8b5cf6);
+          border-radius: 999px;
+        }
+      `}</style>
+    </div>
   );
 }
